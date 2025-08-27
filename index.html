@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asta Pubblica Fantacalcio</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+</head>
+<body>
+  <span id="extra-bg-image"></span>
+  <h1>Asta Pubblica Fantacalcio</h1>
+
+  <div id="auctionSection">
+    <h2>Giocatore in asta: <span id="currentPlayer">---</span></h2>
+    <h2>Prezzo attuale: <span id="currentPrice">1</span></h2>
+
+    <button id="startAuctionBtn">Avvia Asta</button>
+    <button id="endBidBtn" disabled>Termina Puntata</button>
+
+    <input type="number" id="bidAmount" min="1" max="500" placeholder="Importo rilancio" />
+    <button id="placeBidBtn">Rilancia</button>
+
+    <h3>Partecipanti attivi:</h3>
+    <ul id="activeBiddersList"></ul>
+
+    <h3>Crediti giocatori (id: crediti rimasti):</h3>
+    <ul id="playersCreditsList"></ul>
+  </div>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCo6gqylc6AyMfZrOhVq3d0N_mN8eFcDbs",
+      authDomain: "fanta-stitici.firebaseapp.com",
+      databaseURL: "https://fanta-stitici-default-rtdb.firebaseio.com",
+      projectId: "fanta-stitici",
+      storageBucket: "fanta-stitici.appspot.com",
+      messagingSenderId: "105262633208",
+      appId: "1:105262633208:web:a7314cd5d016beb169ab0d"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const auctionRef = db.ref('auction');
+    const biddersRef = db.ref('bidders');
+
+    const currentPlayerSpan = document.getElementById('currentPlayer');
+    const currentPriceSpan = document.getElementById('currentPrice');
+    const startAuctionBtn = document.getElementById('startAuctionBtn');
+    const endBidBtn = document.getElementById('endBidBtn');
+    const bidAmountInput = document.getElementById('bidAmount');
+    const placeBidBtn = document.getElementById('placeBidBtn');
+    const activeBiddersList = document.getElementById('activeBiddersList');
+    const playersCreditsList = document.getElementById('playersCreditsList');
+
+    let userId = 'user_' + Math.floor(Math.random() * 1000000);
+
+    // Inizializza crediti tempo zero
+    const initialCredit = 500;
+
+    function resetBidders() {
+      biddersRef.set({});
+    }
+
+    auctionRef.on('value', snap => {
+      const auction = snap.val() || {};
+      currentPlayerSpan.textContent = auction.currentPlayer || '---';
+      currentPriceSpan.textContent = auction.currentPrice || 1;
+      const started = auction.started || false;
+
+      startAuctionBtn.disabled = started;
+      placeBidBtn.disabled = !started;
+      bidAmountInput.disabled = !started;
+      endBidBtn.disabled = !started;
+
+      if(!started) {
+        activeBiddersList.innerHTML = '';
+        playersCreditsList.innerHTML = '';
+      }
+    });
+
+    biddersRef.on('value', snap => {
+      const bidders = snap.val() || {};
+      activeBiddersList.innerHTML = '';
+      playersCreditsList.innerHTML = '';
+      for(let uid in bidders) {
+        let item = document.createElement('li');
+        item.textContent = uid + ': ' + bidders[uid].credits;
+        playersCreditsList.appendChild(item);
+
+        if(bidders[uid].active) {
+          let activeItem = document.createElement('li');
+          activeItem.textContent = uid;
+          activeBiddersList.appendChild(activeItem);
+        }
+      }
+
+      // Controlla se è rimasto un solo giocatore attivo
+      const actives = Object.values(bidders).filter(b => b.active);
+      if(actives.length === 1) {
+        auctionRef.update({ started: false });
+        alert('Asta terminata! Il vincitore è ' + Object.keys(bidders).find(k => bidders[k].active));
+        startAuctionBtn.disabled = false;
+        placeBidBtn.disabled = true;
+        bidAmountInput.disabled = true;
+        endBidBtn.disabled = true;
+      }
+    });
+
+    startAuctionBtn.onclick = () => {
+      const playerName = prompt('Inserisci il nome del giocatore in asta');
+      if(!playerName) return alert('Serve un nome giocatore');
+      auctionRef.set({
+        currentPlayer: playerName,
+        currentPrice: 1,
+        started: true
+      });
+      biddersRef.set({
+        [userId]: { credits: initialCredit, active: true }
+      }, e => {
+        if(e) alert('Errore inizializzazione bidder');
+      });
+    };
+
+    placeBidBtn.onclick = () => {
+      const bid = parseInt(bidAmountInput.value);
+      if(isNaN(bid) || bid <= 0) {
+        return alert('Inserisci un importo valido');
+      }
+
+      auctionRef.once('value').then(snap=>{
+        const auction = snap.val() || {};
+        if(!auction.started) return alert('Asta non avviata');
+        if(bid <= auction.currentPrice) return alert('Importo deve essere superiore a prezzo attuale');
+        if(bid > initialCredit) return alert('Importo maggiore del credito disponibile');
+
+        auctionRef.update({ currentPrice: bid });
+        biddersRef.child(userId).once('value').then(userSnap=>{
+          let userData = userSnap.val() || { credits: initialCredit, active: true };
+          if(bid > userData.credits) {
+            alert('Crediti non sufficienti');
+            return;
+          }
+          userData.credits -= bid;
+          biddersRef.child(userId).set(userData);
+          bidAmountInput.value = '';
+        });
+      });
+    };
+
+    endBidBtn.onclick = () => {
+      biddersRef.child(userId).update({ active: false });
+      alert('Hai terminato la tua partecipazione all\'asta');
+    };
+
+    // All'uscita dell'utente, segna come non attivo
+    window.addEventListener("beforeunload", () => {
+      biddersRef.child(userId).update({ active: false });
+    });
+  </script>
+</body>
+</html>
