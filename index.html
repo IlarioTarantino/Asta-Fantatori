@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="it" class="scroll-smooth">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Asta Pubblica Fantacalcio</title>
+  <!-- Tailwind CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Google Fonts -->
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700;900&display=swap" rel="stylesheet" />
+
+  <style>
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(135deg, #004d00 0%, #003300 100%);
+      min-height: 100vh;
+    }
+    .tailwind-scrollbar::-webkit-scrollbar {
+      width: 12px;
+    }
+    .tailwind-scrollbar::-webkit-scrollbar-track {
+      background: #2e4500;
+    }
+    .tailwind-scrollbar::-webkit-scrollbar-thumb {
+      background-color: #a5d13a;
+      border-radius: 75px;
+      border: 3px solid #2e4500;
+    }
+  </style>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
+</head>
+
+<body class="relative text-green-100 flex flex-col items-center p-6 space-y-6">
+
+  <!-- Immagini di sfondo -->
+  <div class="fixed bottom-4 right-4 w-36 h-36 bg-cover bg-center opacity-20 pointer-events-none z-0"
+       style="background-image: url('img/mazzone_ansa.jpg');"></div>
+
+  <div class="fixed top-4 left-4 w-40 h-28 bg-cover bg-center opacity-20 pointer-events-none z-0"
+       style="background-image: url('img/allenatore_nel_pallone_-kwlE-RexWCx4Ewisg3PzIgvdwk5N-590x445-Corriere-Web-Sezioni.jpg');"></div>
+
+  <div id="extra-bg-image" class="fixed top-[38%] right-0 w-32 h-44 bg-cover bg-center opacity-20 pointer-events-none z-0"
+       style="background-image: url('img/allegri.juve_.sorrisone.2022.1400x840.jpg');"></div>
+
+  <h1 class="text-4xl font-extrabold text-center drop-shadow-lg tracking-wide uppercase z-10">Asta Pubblica Fantacalcio</h1>
+
+  <!-- Login username -->
+  <section id="loginSection" class="bg-green-900 bg-opacity-90 p-8 rounded-3xl shadow-lg w-full max-w-sm flex flex-col space-y-6 relative z-10">
+    <label for="usernameInput" class="block text-xl font-medium mb-2 text-green-200">Inserisci il nome squadra (username):</label>
+    <input type="text" id="usernameInput" placeholder="Es. JuventusFC" autocomplete="off" 
+           class="w-full py-3 px-4 rounded-lg text-green-900 font-semibold focus:outline-none focus:ring-4 focus:ring-yellow-400" />
+    <button id="loginBtn" disabled class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Entra nell'asta</button>
+  </section>
+
+  <!-- Asta -->
+  <section id="auctionSection" class="hidden bg-green-900 bg-opacity-80 p-8 rounded-3xl shadow-lg w-full max-w-xl flex flex-col space-y-6 relative z-10">
+    <div class="flex justify-between">
+      <h2 class="text-2xl font-bold">Giocatore in asta:</h2>
+      <span id="currentPlayer" class="text-2xl font-semibold italic">---</span>
+    </div>
+    <div class="flex justify-between items-center">
+      <h2 class="text-2xl font-bold">Prezzo attuale:</h2>
+      <span id="currentPrice" class="text-2xl font-semibold">1</span>
+    </div>
+
+    <div class="flex flex-wrap gap-4 justify-center">
+      <button id="startAuctionBtn" class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Avvia Asta</button>
+      <button id="endBidBtn" disabled class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Termina Puntata</button>
+    </div>
+
+    <div class="flex space-x-2 items-center">
+      <input id="bidAmount" type="number" min="1" max="500" placeholder="Importo rilancio" class="flex-grow py-3 px-5 rounded-3xl text-green-900 focus:outline-none focus:ring-4 focus:ring-yellow-400 shadow-inner" />
+      <button id="placeBidBtn" class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Rilancia</button>
+    </div>
+
+    <div>
+      <h3 class="text-lg font-semibold mb-2">Partecipanti attivi:</h3>
+      <ul id="activeBiddersList" class="max-h-48 overflow-y-auto tailwind-scrollbar rounded-2xl bg-green-700 bg-opacity-60 p-4 space-y-1 text-green-200 font-medium"></ul>
+    </div>
+
+    <div>
+      <h3 class="text-lg font-semibold mb-2">Crediti residui giocatori:</h3>
+      <ul id="playersCreditsList" class="max-h-48 overflow-y-auto tailwind-scrollbar rounded-2xl bg-green-700 bg-opacity-60 p-4 space-y-1 text-green-300 font-mono"></ul>
+    </div>
+  </section>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCo6gqylc6AyMfZrOhVq3d0N_mN8eFcDbs",
+      authDomain: "fanta-stitici.firebaseapp.com",
+      databaseURL: "https://fanta-stitici-default-rtdb.firebaseio.com",
+      projectId: "fanta-stitici",
+      storageBucket: "fanta-stitici.appspot.com",
+      messagingSenderId: "105262633208",
+      appId: "1:105262633208:web:a7314cd5d016beb169ab0d"
+    };
+
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    const auctionRef = db.ref('auction');
+    const biddersRef = db.ref('bidders');
+    const presenceRef = db.ref('presence');
+    const connectedRef = db.ref('.info/connected');
+
+    // UI Elements
+    const loginSection = document.getElementById('loginSection');
+    const auctionSection = document.getElementById('auctionSection');
+    const usernameInput = document.getElementById('usernameInput');
+    const loginBtn = document.getElementById('loginBtn');
+    const currentPlayerSpan = document.getElementById('currentPlayer');
+    const currentPriceSpan = document.getElementById('currentPrice');
+    const startAuctionBtn = document.getElementById('startAuctionBtn');
+    const endBidBtn = document.getElementById('endBidBtn');
+    const bidAmountInput = document.getElementById('bidAmount');
+    const placeBidBtn = document.getElementById('placeBidBtn');
+    const activeBiddersList = document.getElementById('activeBiddersList');
+    const playersCreditsList = document.getElementById('playersCreditsList');
+
+    let userId = null;
+    const initialCredit = 500;
+
+    // Abilita il bottone login solo se username non vuoto
+    usernameInput.addEventListener('input', () => {
+      loginBtn.disabled = usernameInput.value.trim() === '';
+    });
+
+    loginBtn.onclick = () => {
+      const username = usernameInput.value.trim();
+      if (!username) return alert('Inserisci un nome squadra valido.');
+
+      userId = username;
+
+      // Salva presenza per sistema real-time online
+      connectedRef.on('value', snap => {
+        if (snap.val() === true) {
+          const userStatusRef = presenceRef.child(userId);
+          userStatusRef.onDisconnect().remove(); // auto-remove on disconnect
+          userStatusRef.set(true);
+        }
+      });
+
+      // Default crediti se non esistono
+      biddersRef.child(userId).once('value').then(snap => {
+        if (!snap.exists()) {
+          biddersRef.child(userId).set({ credits: initialCredit, active: true });
+        }
+      });
+
+      loginSection.classList.add('hidden');
+      auctionSection.classList.remove('hidden');
+    };
+
+    // Funzione per aggiornare l’attività basata sui crediti
+    function aggiornaAttivitaSquadre(bidders) {
+      for (const uid in bidders) {
+        const crediti = bidders[uid].credits;
+        biddersRef.child(uid).update({ active: crediti > 0 });
+      }
+    }
+
+    // Monitoraggio asta
+    auctionRef.on('value', snap => {
+      const auction = snap.val() || {};
+      currentPlayerSpan.textContent = auction.currentPlayer || '---';
+      currentPriceSpan.textContent = auction.currentPrice || 1;
+      const started = auction.started || false;
+
+      startAuctionBtn.disabled = started;
+      placeBidBtn.disabled = !started;
+      bidAmountInput.disabled = !started;
+      endBidBtn.disabled = !started;
+
+      if (!started) {
+        activeBiddersList.innerHTML = '';
+        playersCreditsList.innerHTML = '';
+      }
+    });
+
+    // Monitoraggio bidder e aggiornamento liste attivi e crediti
+    biddersRef.on('value', snap => {
+      const bidders = snap.val() || {};
+      activeBiddersList.innerHTML = '';
+      playersCreditsList.innerHTML = '';
+
+      aggiornaAttivitaSquadre(bidders);
+
+      for (const uid in bidders) {
+        const item = document.createElement('li');
+        item.textContent = `${uid}: ${bidders[uid].credits}`;
+        playersCreditsList.appendChild(item);
+
+        if (bidders[uid].active) {
+          const activeItem = document.createElement('li');
+          activeItem.textContent = uid;
+          activeBiddersList.appendChild(activeItem);
+        }
+      }
+
+      const attivi = Object.values(bidders).filter(b => b.active);
+      if (attivi.length <= 1 && Object.keys(bidders).length > 0) {
+        auctionRef.update({ started: false });
+        if (attivi.length === 1) {
+          const vincitore = Object.keys(bidders).find(k => bidders[k].active);
+          alert(`Asta terminata! Il vincitore è ${vincitore}`);
+        } else {
+          alert('Asta terminata! Nessun partecipante attivo.');
+        }
+      }
+    });
+
+    // Avvio asta
+    startAuctionBtn.onclick = () => {
+      const playerName = prompt('Inserisci il nome del giocatore in asta');
+      if (!playerName) return alert('Serve un nome giocatore');
+
+      auctionRef.set({
+        currentPlayer: playerName,
+        currentPrice: 1,
+        started: true
+      });
+
+      biddersRef.child(userId).update({ active: true });
+    };
+
+    // Rilancio
+    placeBidBtn.onclick = () => {
+      const bid = parseInt(bidAmountInput.value);
+      if (isNaN(bid) || bid <= 0) return alert('Inserisci un importo valido');
+
+      auctionRef.once('value').then(snap => {
+        const auction = snap.val() || {};
+        if (!auction.started) return alert('Asta non avviata');
+        if (bid <= auction.currentPrice) return alert('Importo deve essere superiore al prezzo attuale');
+
+        biddersRef.child(userId).once('value').then(userSnap => {
+          let userData = userSnap.val();
+          if (!userData || !userData.active) return alert('Sei fuori dall\'asta, crediti esauriti');
+          if (bid > userData.credits) return alert('Crediti non sufficienti');
+
+          auctionRef.update({ currentPrice: bid });
+          userData.credits -= bid;
+          userData.active = userData.credits > 0;
+          biddersRef.child(userId).set(userData);
+          bidAmountInput.value = '';
+        });
+      });
+    };
+
+    // Termina partecipazione volontaria
+    endBidBtn.onclick = () => {
+      biddersRef.child(userId).update({ active: false });
+      alert('Hai terminato la tua partecipazione all\'asta');
+    };
+
+    // Rimuove la presenza all'uscita
+    window.addEventListener('beforeunload', () => {
+      presenceRef.child(userId).remove();
+      biddersRef.child(userId).update({ active: false });
+    });
+  </script>
+</body>
+</html>
