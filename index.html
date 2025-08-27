@@ -16,7 +16,6 @@
       background: linear-gradient(135deg, #004d00 0%, #003300 100%);
       min-height: 100vh;
     }
-    /* Scrollbar personalizzata */
     .tailwind-scrollbar::-webkit-scrollbar {
       width: 12px;
     }
@@ -32,6 +31,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 </head>
+
 <body class="relative text-green-100 flex flex-col items-center p-6 space-y-6">
 
   <!-- Immagini di sfondo -->
@@ -46,7 +46,16 @@
 
   <h1 class="text-4xl font-extrabold text-center drop-shadow-lg tracking-wide uppercase z-10">Asta Pubblica Fantacalcio</h1>
 
-  <section class="bg-green-900 bg-opacity-80 p-8 rounded-3xl shadow-lg w-full max-w-xl flex flex-col space-y-6 relative z-10">
+  <!-- Login username -->
+  <section id="loginSection" class="bg-green-900 bg-opacity-90 p-8 rounded-3xl shadow-lg w-full max-w-sm flex flex-col space-y-6 relative z-10">
+    <label for="usernameInput" class="block text-xl font-medium mb-2 text-green-200">Inserisci il nome squadra (username):</label>
+    <input type="text" id="usernameInput" placeholder="Es. JuventusFC" autocomplete="off" 
+           class="w-full py-3 px-4 rounded-lg text-green-900 font-semibold focus:outline-none focus:ring-4 focus:ring-yellow-400" />
+    <button id="loginBtn" disabled class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Entra nell'asta</button>
+  </section>
+
+  <!-- Asta -->
+  <section id="auctionSection" class="hidden bg-green-900 bg-opacity-80 p-8 rounded-3xl shadow-lg w-full max-w-xl flex flex-col space-y-6 relative z-10">
     <div class="flex justify-between">
       <h2 class="text-2xl font-bold">Giocatore in asta:</h2>
       <span id="currentPlayer" class="text-2xl font-semibold italic">---</span>
@@ -57,7 +66,7 @@
     </div>
 
     <div class="flex flex-wrap gap-4 justify-center">
-      <button id="startAuctionBtn" class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50" >Avvia Asta</button>
+      <button id="startAuctionBtn" class="bg-yellow-400 hover:bg-yellow-500 text-green-900 font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Avvia Asta</button>
       <button id="endBidBtn" disabled class="bg-red-500 hover:bg-red-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transition transform hover:scale-105 disabled:opacity-50">Termina Puntata</button>
     </div>
 
@@ -93,7 +102,14 @@
 
     const auctionRef = db.ref('auction');
     const biddersRef = db.ref('bidders');
+    const presenceRef = db.ref('presence');
+    const connectedRef = db.ref('.info/connected');
 
+    // UI Elements
+    const loginSection = document.getElementById('loginSection');
+    const auctionSection = document.getElementById('auctionSection');
+    const usernameInput = document.getElementById('usernameInput');
+    const loginBtn = document.getElementById('loginBtn');
     const currentPlayerSpan = document.getElementById('currentPlayer');
     const currentPriceSpan = document.getElementById('currentPrice');
     const startAuctionBtn = document.getElementById('startAuctionBtn');
@@ -103,13 +119,49 @@
     const activeBiddersList = document.getElementById('activeBiddersList');
     const playersCreditsList = document.getElementById('playersCreditsList');
 
-    let userId = 'user_' + Math.floor(Math.random() * 1000000);
+    let userId = null;
     const initialCredit = 500;
 
-    function resetBidders() {
-      biddersRef.set({});
+    // Abilita il bottone login solo se username non vuoto
+    usernameInput.addEventListener('input', () => {
+      loginBtn.disabled = usernameInput.value.trim() === '';
+    });
+
+    loginBtn.onclick = () => {
+      const username = usernameInput.value.trim();
+      if (!username) return alert('Inserisci un nome squadra valido.');
+
+      userId = username;
+
+      // Salva presenza per sistema real-time online
+      connectedRef.on('value', snap => {
+        if (snap.val() === true) {
+          const userStatusRef = presenceRef.child(userId);
+          userStatusRef.onDisconnect().remove(); // auto-remove on disconnect
+          userStatusRef.set(true);
+        }
+      });
+
+      // Default crediti se non esistono
+      biddersRef.child(userId).once('value').then(snap => {
+        if (!snap.exists()) {
+          biddersRef.child(userId).set({ credits: initialCredit, active: true });
+        }
+      });
+
+      loginSection.classList.add('hidden');
+      auctionSection.classList.remove('hidden');
+    };
+
+    // Funzione per aggiornare l’attività basata sui crediti
+    function aggiornaAttivitaSquadre(bidders) {
+      for (const uid in bidders) {
+        const crediti = bidders[uid].credits;
+        biddersRef.child(uid).update({ active: crediti > 0 });
+      }
     }
 
+    // Monitoraggio asta
     auctionRef.on('value', snap => {
       const auction = snap.val() || {};
       currentPlayerSpan.textContent = auction.currentPlayer || '---';
@@ -121,38 +173,48 @@
       bidAmountInput.disabled = !started;
       endBidBtn.disabled = !started;
 
-      if(!started) {
+      if (!started) {
         activeBiddersList.innerHTML = '';
         playersCreditsList.innerHTML = '';
       }
     });
 
+    // Monitoraggio bidder e aggiornamento liste attivi e crediti
     biddersRef.on('value', snap => {
       const bidders = snap.val() || {};
       activeBiddersList.innerHTML = '';
       playersCreditsList.innerHTML = '';
-      for(let uid in bidders) {
-        let item = document.createElement('li');
+
+      aggiornaAttivitaSquadre(bidders);
+
+      for (const uid in bidders) {
+        const item = document.createElement('li');
         item.textContent = `${uid}: ${bidders[uid].credits}`;
         playersCreditsList.appendChild(item);
 
-        if(bidders[uid].active) {
-          let activeItem = document.createElement('li');
+        if (bidders[uid].active) {
+          const activeItem = document.createElement('li');
           activeItem.textContent = uid;
           activeBiddersList.appendChild(activeItem);
         }
       }
 
-      const actives = Object.values(bidders).filter(b => b.active);
-      if(actives.length === 1 && Object.keys(bidders).length > 0) {
+      const attivi = Object.values(bidders).filter(b => b.active);
+      if (attivi.length <= 1 && Object.keys(bidders).length > 0) {
         auctionRef.update({ started: false });
-        alert('Asta terminata! Il vincitore è ' + Object.keys(bidders).find(k => bidders[k].active));
+        if (attivi.length === 1) {
+          const vincitore = Object.keys(bidders).find(k => bidders[k].active);
+          alert(`Asta terminata! Il vincitore è ${vincitore}`);
+        } else {
+          alert('Asta terminata! Nessun partecipante attivo.');
+        }
       }
     });
 
+    // Avvio asta
     startAuctionBtn.onclick = () => {
       const playerName = prompt('Inserisci il nome del giocatore in asta');
-      if(!playerName) return alert('Serve un nome giocatore');
+      if (!playerName) return alert('Serve un nome giocatore');
 
       auctionRef.set({
         currentPlayer: playerName,
@@ -160,45 +222,42 @@
         started: true
       });
 
-      biddersRef.set({
-        [userId]: { credits: initialCredit, active: true }
-      }, e => {
-        if(e) alert('Errore inizializzazione bidder');
-      });
+      biddersRef.child(userId).update({ active: true });
     };
 
+    // Rilancio
     placeBidBtn.onclick = () => {
       const bid = parseInt(bidAmountInput.value);
-      if (isNaN(bid) || bid <= 0) {
-        return alert('Inserisci un importo valido');
-      }
+      if (isNaN(bid) || bid <= 0) return alert('Inserisci un importo valido');
 
       auctionRef.once('value').then(snap => {
         const auction = snap.val() || {};
-        if(!auction.started) return alert('Asta non avviata');
-        if(bid <= auction.currentPrice) return alert('Importo deve essere superiore al prezzo attuale');
-        if(bid > initialCredit) return alert('Importo maggiore del credito disponibile');
+        if (!auction.started) return alert('Asta non avviata');
+        if (bid <= auction.currentPrice) return alert('Importo deve essere superiore al prezzo attuale');
 
-        auctionRef.update({ currentPrice: bid });
         biddersRef.child(userId).once('value').then(userSnap => {
-          let userData = userSnap.val() || { credits: initialCredit, active: true };
-          if(bid > userData.credits) {
-            alert('Crediti non sufficienti');
-            return;
-          }
+          let userData = userSnap.val();
+          if (!userData || !userData.active) return alert('Sei fuori dall\'asta, crediti esauriti');
+          if (bid > userData.credits) return alert('Crediti non sufficienti');
+
+          auctionRef.update({ currentPrice: bid });
           userData.credits -= bid;
+          userData.active = userData.credits > 0;
           biddersRef.child(userId).set(userData);
           bidAmountInput.value = '';
         });
       });
     };
 
+    // Termina partecipazione volontaria
     endBidBtn.onclick = () => {
       biddersRef.child(userId).update({ active: false });
       alert('Hai terminato la tua partecipazione all\'asta');
     };
 
-    window.addEventListener("beforeunload", () => {
+    // Rimuove la presenza all'uscita
+    window.addEventListener('beforeunload', () => {
+      presenceRef.child(userId).remove();
       biddersRef.child(userId).update({ active: false });
     });
   </script>
